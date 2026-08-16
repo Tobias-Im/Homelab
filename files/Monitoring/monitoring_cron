@@ -1,0 +1,8 @@
+# Run full monitoring backup only Sunday at 3:00 AM
+0 3 * * 0 Saturday /home/Saturday/Scripts/BackUp/monitoring_backup.sh >/dev/null 2>&1
+
+# Clean up local backups (retain only the last one) on Sunday at 4:00 AM
+0 4 * * 0 Saturday /home/Saturday/Scripts/BackUp/monitoring_cleanup_backups.sh >/dev/null 2>&1
+
+# Transfer the latest backup to Homelab on Sunday at 4:15 AM
+15 4 * * 0 Saturday /home/Saturday/Scripts/BackUp/monitoring_transfer_to_homelab.sh >/dev/null 2>&1

@@ -1,0 +1,193 @@
+---
+- name: Configure OpenMediaVault Server
+  hosts: openmediavault
+  become: yes # Tells Ansible to run all commands with sudo
+
+  vars_files:
+    - credentials.yml
+
+  tasks:
+    - name: Set system timezone to Bucharest
+      timezone:
+        name: Europe/Bucharest
+
+    - name: Ensure '_ssh' group exists
+      group:
+        name: _ssh
+        state: present
+
+    - name: Ensure user 'Saturday' is in the '_ssh' and 'sudo' groups (Prevents Lockouts)
+      user:
+        name: Saturday
+        groups: _ssh,sudo
+        append: yes
+
+    - name: Ensure 'ufw' is removed (OMV manages its own firewall)
+      apt:
+        name: ufw
+        state: absent
+
+    - name: Install Safe Core Utility Packages
+      apt:
+        name: 
+          - htop
+          - cron
+          - btop
+          - iotop
+          - sysstat
+          - dstat
+          - lsof
+          - curl
+          - iperf3
+          - tcpdump
+          - traceroute
+          - xterm
+          - mtr
+          - whois
+          - hdparm
+          - fio
+          - gdisk
+          - parted
+          - smartmontools
+          - nvme-cli
+          - lm-sensors
+          - ncdu
+          - git
+          - vim
+          - neovim
+          - tmux
+          - bash-completion
+          - rsync
+          - unzip
+          - zip
+          - p7zip-full
+          - tree
+          - file
+          - fzf
+          - ripgrep
+          - fd-find
+          - jq
+          - yq
+          - watch
+          - hwinfo
+          - lshw
+          - prometheus-node-exporter
+        state: present
+        update_cache: yes
+
+    - name: Ensure Node Exporter is enabled and running
+      systemd:
+        name: prometheus-node-exporter
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+    # =========================================================================
+    # NOTE: The QEMU Guest Agent is already pre-installed via virt-customize 
+    # in the 'proxmox_create_debian_cloudinit.sh' script. 
+    # However, it is kept active here as a safety net. Since Ansible is 
+    # idempotent, it is 100% safe to run again; if it's already installed, 
+    # Ansible will simply skip it without changing anything.
+    # =========================================================================
+    - name: Ensure QEMU Guest Agent is installed
+      apt:
+        name: qemu-guest-agent
+        state: present
+        update_cache: yes
+
+    - name: Ensure QEMU Guest Agent is running and enabled
+      systemd:
+        name: qemu-guest-agent
+        state: started
+        enabled: yes
+    # =========================================================================
+
+    - name: Reduce Swappiness to 1 (Optimize for SSD)
+      sysctl:
+        name: vm.swappiness
+        value: '1'
+        state: present
+        sysctl_file: /etc/sysctl.d/99-swappiness.conf
+
+    - name: Configure GRUB for Proxmox Serial Console
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+        line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet console=tty0 console=ttyS0,115200"'
+      notify: update-grub
+
+    - name: Install OpenMediaVault Core
+      shell: "wget -O - https://github.com/OpenMediaVault-Plugin-Developers/installScript/raw/master/install | bash"
+      args:
+        creates: /usr/sbin/omv-firstaid # Prevents Ansible from installing OMV if it's already installed!
+
+    - name: Set OpenMediaVault WebGUI Admin Password
+      user:
+        name: admin
+        password: "{{ omv_admin_password | password_hash('sha512') }}"
+    # =========================================================================
+
+    - name: Add 'll' alias to bashrc
+      lineinfile:
+        path: /etc/bash.bashrc
+        line: "alias ll='ls -ahl'"
+        state: present
+
+    - name: Install OMV-Extras Plugin Repository
+      shell: "wget -O - https://github.com/OpenMediaVault-Plugin-Developers/packages/raw/master/install | bash"
+      args:
+        creates: /etc/apt/sources.list.d/omvextras.list # Failsafe to prevent reinstalling
+
+    - name: Run omv-upgrade to update all packages
+      shell: "omv-upgrade"
+      changed_when: false
+
+
+    - name: Ensure the NFS shared folder directory has correct ownership and permissions
+      file:
+        path: /export/shared_storage
+        state: directory
+        owner: root
+        group: Saturday
+        mode: '2775'
+      ignore_errors: yes
+
+    - name: Push the monolithic OMV configuration file
+      ansible.builtin.copy:
+        src: ../../files/OpenMediaVault/omv_config.xml
+        dest: /etc/openmediavault/config.xml
+        owner: root
+        group: openmediavault-config
+        mode: '0660'
+      register: omv_config_upload
+      ignore_errors: yes  # Fallback in case owner user hasn't fully registered
+
+    - name: Force OMV to deploy the new Golden Config
+      command: omv-salt stage run deploy
+      when: omv_config_upload.changed
+
+    - name: Apply pending OMV configuration changes (Yellow Banner)
+      shell: |
+        if [ -s /var/lib/openmediavault/dirtymodules.json ] && [ "$(cat /var/lib/openmediavault/dirtymodules.json)" != "[]" ]; then
+          omv-rpc -u admin "config" "applyChanges" "{ \"modules\": $(cat /var/lib/openmediavault/dirtymodules.json), \"force\": true }"
+          echo "Changes applied"
+        fi
+      register: omv_apply
+      changed_when: "'Changes applied' in omv_apply.stdout"
+
+    - name: Secure sudo (Remove Cloud-Init NOPASSWD override)
+      file:
+        path: /etc/sudoers.d/90-cloud-init-users
+        state: absent
+
+    - name: Reboot server to apply kernel, GRUB, and OMV configurations
+      reboot:
+        msg: "Reboot initiated by Ansible to apply all system updates"
+        connect_timeout: 5
+        reboot_timeout: 600
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+
+  handlers:
+    - name: update-grub
+      command: update-grub

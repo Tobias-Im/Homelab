@@ -1,0 +1,3 @@
+PARTUUID=87078eeb-1f38-4b08-8e1f-e659b280d404 / ext4 rw,discard,errors=remount-ro,x-systemd.growfs 0 1
+PARTUUID=a1457a03-da2a-4edd-95a6-3813559a02f9 /boot/efi vfat defaults,umask=077 0 2
+192.168.X.X:/export/shared_storage /mnt/shared_storage nfs defaults,auto,noatime,bg,nofail,_netdev 0 0

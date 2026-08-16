@@ -1,0 +1,401 @@
+
+secrets:
+
+  watchtower_api_token:
+    file: /home/Saturday/wall/Docker/Watchtower/watchtower_api_token
+
+volumes:
+  portainer_data:
+    name: docker_portainer_data
+    external: true
+  etc_wireguard: {}
+
+  seerr-data:
+    external: true
+
+services:
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    ports:
+      - 9443:9443
+    volumes:
+      - portainer_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    network_mode: service:gluetun
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Bucharest
+      - WEBUI_PORT=8081
+      - TORRENTING_PORT=6881
+    volumes:
+      - /home/Saturday/wall/Docker/QbitTorrent/config:/config
+      - /mnt/shared_storage/Media:/Media
+    restart: unless-stopped
+
+  heimdall:
+    image: lscr.io/linuxserver/heimdall:latest
+    container_name: heimdall
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Bucharest
+    volumes:
+      - /home/Saturday/wall/Docker/Heimdall/config:/config
+    ports:
+      - 8080:80
+      - 8443:443
+    restart: unless-stopped
+
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Bucharest
+    volumes:
+      - /home/Saturday/wall/Docker/Jellyfin/library:/config
+      - /mnt/shared_storage/Media:/Media
+    tmpfs:              
+      - /transcode  
+    ports:
+      - 8096:8096
+    restart: unless-stopped
+
+  cloudflare-ddns:
+    image: oznu/cloudflare-ddns:latest
+    container_name: cloudflare-ddns
+    restart: always
+    environment:
+      - API_KEY=<YOUR_CLOUDFLARE_API_KEY>
+      - ZONE=<YOUR_DOMAIN_NAME>
+      - PROXIED=true
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    hostname: homelab
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - 9100:9100
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - 7070:8080
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    restart: unless-stopped
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /home/Saturday/wall/Docker/Dozzle:/data
+    ports:
+      - 8888:8080
+    restart: unless-stopped
+    environment:
+      DOZZLE_AUTH_PROVIDER: simple
+      DOZZLE_TAILSIZE: 2000
+      DOZZLE_LEVEL: debug
+
+  dockpeek:
+    image: ghcr.io/dockpeek/dockpeek:latest
+    container_name: dockpeek
+    environment:
+      - SECRET_KEY=<YOUR_SECRET_KEY>
+      - USERNAME=${Dockpeek_username}
+      - PASSWORD=Sunday
+    ports:
+      - 3420:8000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    secrets:
+      - watchtower_api_token
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - 8082:8080
+    environment:
+      TZ: Europe/Bucharest
+      WATCHTOWER_CLEANUP: true
+      DOCKER_API_VERSION: '1.41'
+
+      WATCHTOWER_REMOVE_VOLUMES: false
+      WATCHTOWER_INCLUDE_RESTARTING: true
+      WATCHTOWER_INCLUDE_STOPPED: true
+      WATCHTOWER_SCHEDULE: "0 0 7 15 * *"
+      WATCHTOWER_LABEL_ENABLE: false
+      WATCHTOWER_ROLLING_RESTART: false
+      WATCHTOWER_TIMEOUT: 30s
+      WATCHTOWER_HTTP_API_METRICS: true
+      WATCHTOWER_HTTP_API_TOKEN: /run/secrets/watchtower_api_token
+    restart: unless-stopped
+
+  qbittorrent-exporter:
+    image: ghcr.io/martabal/qbittorrent-exporter:latest
+    container_name: qbittorrent-exporter
+    environment:
+      - QBITTORRENT_BASE_URL=http://192.168.X.X:8081
+      - QBITTORRENT_API_KEY=<YOUR_QBITTORRENT_API_KEY>
+    ports:
+      - 8090:8090
+    restart: unless-stopped
+
+  navidrome:
+    image: deluan/navidrome:latest
+    container_name: navidrome
+    user: 1000:1000
+    ports:
+      - 4533:4533
+    restart: unless-stopped
+    environment:
+      ND_LOGLEVEL: info
+      ND_MUSICFOLDER: /Media/Music
+      ND_SCANNER_PURGEMISSING: always
+      ND_ENABLEINSIGHTSCOLLECTOR: false
+      ND_PROMETHEUS_ENABLED: true
+      ND_PROMETHEUS_METRICSPATH: /metrics_2710309ba7381ef7c68bf6a3
+      ND_AGENTS: spotify,deezer,lastfm
+      ND_SPOTIFY_ID: <YOUR_SPOTIFY_ID>
+      ND_SPOTIFY_SECRET: <YOUR_SPOTIFY_SECRET>
+      ND_LASTFM_APIKEY: <YOUR_LASTFM_API_KEY>
+      ND_LASTFM_SECRET: <YOUR_LASTFM_SECRET>
+    volumes:
+      - /home/Saturday/wall/Docker/Navidrome:/data
+      - /mnt/shared_storage/Media:/Media
+
+  wg-easy:
+    image: ghcr.io/wg-easy/wg-easy:15
+    container_name: wg-easy
+    volumes:
+      - /home/Saturday/wall/Docker/WireguardEasy:/etc/wireguard
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - "51820:51820/udp"
+      - "51821:51821/tcp"
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv6.conf.all.forwarding=1
+      - net.ipv6.conf.default.forwarding=1
+
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - 8081:8081
+      - 6881:6881
+      - 6881:6881/udp
+      - 9696:9696
+      - 7878:7878
+      - 8989:8989
+      - 6767:6767
+      - 8191:8191
+      - 8686:8686
+    volumes:
+      - /home/Saturday/wall/Docker/Gluetun:/gluetun
+    environment:
+      - VPN_SERVICE_PROVIDER=custom
+      - VPN_TYPE=wireguard
+      - TZ=Europe/Bucharest
+      - WIREGUARD_PRIVATE_KEY=<YOUR_WG_PRIVATE_KEY>
+      - WIREGUARD_ADDRESSES=<YOUR_WG_ADDRESSES>
+      - VPN_ENDPOINT_IP=<YOUR_VPN_ENDPOINT_IP>
+      - VPN_ENDPOINT_PORT=51820
+      - WIREGUARD_PUBLIC_KEY=<YOUR_WG_PUBLIC_KEY>
+      - UPDATER_PERIOD=24h
+    restart: unless-stopped
+
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    init: true
+    container_name: seerr
+    environment:
+      - LOG_LEVEL=debug
+      - TZ=Europe/Bucharest
+    ports:
+      - 5055:5055
+    volumes:
+      - seerr-data:/app/config
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:5055/api/v1/settings/public || exit 1
+      start_period: 20s
+      timeout: 3s
+      interval: 15s
+      retries: 3
+    restart: unless-stopped
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    network_mode: service:gluetun
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
+      - PROMETHEUS_ENABLED=true
+      - PROMETHEUS_PORT=8192
+      - TZ=Europe/Bucharest
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    network_mode: service:gluetun
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Bucharest
+    volumes:
+      - /home/Saturday/wall/Docker/Prowlarr:/config
+    restart: unless-stopped
+
+  speedtest:
+    restart: unless-stopped
+    container_name: openspeedtest
+    ports:
+      - '2000:3000'
+      - '2001:3001'
+    image: openspeedtest/latest
+
+  myspeed:
+    container_name: MySpeed
+    image: germannewsmaker/myspeed:latest
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    ports:
+      - 5216:5216
+    volumes:
+      - /home/Saturday/wall/Docker/MySpeed:/myspeed/data:rw
+    environment:
+      NODE_ENV: production
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    network_mode: service:gluetun
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Bucharest
+    volumes:
+      - /home/Saturday/wall/Docker/Radarr:/config
+      - /mnt/shared_storage/Media:/Media
+    restart: unless-stopped
+
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
+    network_mode: service:gluetun
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Bucharest
+    volumes:
+      - /home/Saturday/wall/Docker/Lidarr:/config
+      - /mnt/shared_storage/Media:/Media
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    network_mode: service:gluetun
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Bucharest
+    volumes:
+      - /home/Saturday/wall/Docker/Sonarr:/config
+      - /mnt/shared_storage/Media:/Media
+    restart: unless-stopped
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    network_mode: service:gluetun
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Bucharest
+    volumes:
+      - /home/Saturday/wall/Docker/Bazarr:/config
+      - /mnt/shared_storage/Media:/Media
+    restart: unless-stopped
+
+  crowdsec:
+    image: crowdsecurity/crowdsec:latest
+    container_name: crowdsec
+    ports:
+      - "6060:6060"
+    environment:
+      - COLLECTIONS=crowdsecurity/nginx crowdsecurity/http-cve
+      - GID=1000
+    volumes:
+      - /home/Saturday/wall/Docker/Crowdsec/config:/etc/crowdsec
+      - /home/Saturday/wall/Docker/Crowdsec/data:/var/lib/crowdsec/data
+      - /home/Saturday/wall/Docker/NginxProxyManager/data/logs:/var/log/npm:ro
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  nginx-proxy-manager:
+    image: zoeyvid/npmplus:latest
+    container_name: nginx-proxy-manager
+    ports:
+      - '80:80'
+      - '443:443'
+      - '81:81'
+    environment:
+      - TZ=Europe/Bucharest
+      - PUID=1000
+      - PGID=1000
+      - CROWDSEC_LAPI_URL=http://crowdsec:8080
+      - CROWDSEC_BOUNCER_KEY=<YOUR_CROWDSEC_BOUNCER_KEY>
+    volumes:
+      - /home/Saturday/wall/Docker/NginxProxyManager/data:/data
+    depends_on:
+      - crowdsec
+    restart: unless-stopped
+

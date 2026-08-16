@@ -1,0 +1,355 @@
+---
+- name: Configure Debian Monitoring Server (Wazuh, Greenbone, Uptime Kuma)
+  hosts: monitoring
+  become: yes
+
+  tasks:
+    - name: Set system timezone to Bucharest
+      timezone:
+        name: Europe/Bucharest
+
+    - name: Ensure user 'Saturday' is in 'sudo' group
+      user:
+        name: Saturday
+        groups: sudo
+        append: yes
+
+    - name: Install Safe Core Utility Packages
+      apt:
+        name: 
+          - htop
+          - cron
+          - rclone
+          - btop
+          - iotop
+          - sysstat
+          - dstat
+          - lsof
+          - strace
+          - nmap
+          - curl
+          - iftop
+          - nload
+          - iperf3
+          - tcpdump
+          - traceroute
+          - mtr
+          - bind9-dnsutils
+          - whois
+          - socat
+          - hdparm
+          - fio
+          - gdisk
+          - parted
+          - smartmontools
+          - nvme-cli
+          - lm-sensors
+          - ncdu
+          - git
+          - pipx
+          - python3-full
+          - vim
+          - neovim
+          - tmux
+          - zsh
+          - bash-completion
+          - xterm
+          - rsync
+          - unzip
+          - zip
+          - p7zip-full
+          - tree
+          - file
+          - fzf
+          - ripgrep
+          - fd-find
+          - jq
+          - yq
+          - hexedit
+          - binutils
+          - stress
+          - stress-ng
+          - apache2-utils
+          - watch
+          - tealdeer
+          - hwinfo
+          - lshw
+          - ca-certificates
+          - gnupg
+          - apt-transport-https
+        state: present
+        update_cache: yes
+
+    # =========================================================================
+    # QEMU GUEST AGENT
+    # =========================================================================
+    - name: Ensure QEMU Guest Agent is installed
+      apt:
+        name: qemu-guest-agent
+        state: present
+
+    - name: Ensure QEMU Guest Agent is running and enabled
+      systemd:
+        name: qemu-guest-agent
+        state: started
+        enabled: yes
+
+    # =========================================================================
+    # SYSTEM TUNING & QUALITY OF LIFE
+    # =========================================================================
+    - name: Reduce Swappiness to 1 (Optimize for SSD)
+      sysctl:
+        name: vm.swappiness
+        value: '1'
+        state: present
+        sysctl_file: /etc/sysctl.d/99-swappiness.conf
+
+    - name: Set vm.max_map_count for Wazuh Indexer (Elasticsearch)
+      sysctl:
+        name: vm.max_map_count
+        value: '262144'
+        state: present
+        sysctl_file: /etc/sysctl.d/99-wazuh.conf
+
+    - name: Configure GRUB for Proxmox Serial Console
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+        line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet console=tty0 console=ttyS0,115200"'
+      notify: update-grub
+
+    - name: Add 'll' alias to bashrc
+      lineinfile:
+        path: /etc/bash.bashrc
+        line: "alias ll='ls -ahl'"
+        state: present
+
+    # =========================================================================
+    # SSH HARDENING
+    # =========================================================================
+    - name: Disable SSH Password Authentication
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+      notify: restart_sshd
+
+    - name: Disable SSH Root Login
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+      notify: restart_sshd
+
+    # =========================================================================
+    # DOCKER INSTALLATION
+    # =========================================================================
+    - name: Remove conflicting docker packages
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+          - docker-doc
+          - podman-docker
+          - containerd
+          - runc
+        state: absent
+
+    - name: Create directory for Docker APT keyrings
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Download Docker official GPG key
+      get_url:
+        url: https://download.docker.com/linux/debian/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+
+    - name: Add Docker APT repository
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ ansible_facts['distribution_release'] }} stable"
+        state: present
+        filename: docker
+
+    - name: Install Docker CE
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker service is running and enabled
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Ensure user 'Saturday' is in the 'docker' group
+      user:
+        name: Saturday
+        groups: docker
+        append: yes
+
+    - name: Reset connection so docker group is picked up
+      meta: reset_connection
+
+    # =========================================================================
+    # SECURITY: FAIL2BAN & UNATTENDED UPGRADES
+    # =========================================================================
+    - name: Install Fail2Ban and Unattended Upgrades
+      apt:
+        name:
+          - fail2ban
+          - unattended-upgrades
+          - apt-listchanges
+        state: present
+
+    - name: Configure Fail2Ban jail.local
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [DEFAULT]
+          # Whitelist localhost and all standard private home networks
+          ignoreip = 127.0.0.1/8 ::1 192.168.X.X/16 10.0.0.0/8 172.16.0.0/12
+          bantime  = 3600
+          findtime  = 300
+          maxretry = 4
+
+          [sshd]
+          enabled = true
+          port    = ssh
+          filter  = sshd
+          logpath = /var/log/auth.log
+          maxretry = 4
+      notify: restart_fail2ban
+
+    - name: Enable auto-upgrade timer
+      copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+
+    - name: Configure strict Unattended Upgrades policy (Safe for Proxmox/VMs)
+      copy:
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        content: |
+          // Automatically upgrade ONLY Debian Security packages
+          Unattended-Upgrade::Origins-Pattern {
+              "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+          };
+
+          // DO NOT upgrade Proxmox-specific packages automatically
+          Unattended-Upgrade::Package-Blacklist {
+              "pve-*";
+              "qemu-*";
+              "proxmox-*";
+              "ceph-*";
+              "zfs-*";
+          };
+
+          // Automatically run apt-get autoremove to clean up old kernels
+          Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+          Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+          Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+          // NEVER automatically reboot
+          Unattended-Upgrade::Automatic-Reboot "false";
+      notify: restart_unattended_upgrades
+
+    # =========================================================================
+    # RESTORE OLD SCRIPTS
+    # =========================================================================
+    - name: Ensure target Scripts directory exists
+      file:
+        path: /home/Saturday/Scripts
+        state: directory
+        owner: Saturday
+        group: Saturday
+        mode: '0755'
+
+    - name: Upload legacy scripts to the new server
+      ansible.builtin.copy:
+        src: ../../files/Monitoring/Scripts/
+        dest: /home/Saturday/Scripts/
+        owner: Saturday
+        group: Saturday
+        mode: '0755'
+
+    # =========================================================================
+    # AUTOMATED MONITORING RESTORE
+    # =========================================================================
+    - name: Ensure target BackUp directory exists
+      file:
+        path: /home/Saturday/BackUp
+        state: directory
+        owner: Saturday
+        group: Saturday
+        mode: '0755'
+
+    - name: Upload Monitoring backup archive (This will take a few minutes!)
+      copy:
+        src: "{{ item }}"
+        dest: /home/Saturday/BackUp/
+        owner: Saturday
+        group: Saturday
+        mode: '0644'
+      with_fileglob:
+        - "../../files/Monitoring/monitoring-full-backup-*.tar.gz"
+
+    - name: Execute Monitoring Restore Script (Unpack & Start Docker)
+      command: /home/Saturday/Scripts/BackUp/monitoring_restore_backup.sh
+      become: yes
+      become_user: Saturday
+      args:
+        chdir: /home/Saturday/Scripts/BackUp
+
+    # =========================================================================
+    # STATIC CRON JOBS DEPLOYMENT
+    # =========================================================================
+    - name: Set up monitoring_cron
+      ansible.builtin.copy:
+        src: ../../files/Monitoring/monitoring_cron
+        dest: /etc/cron.d/monitoring_cron
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Secure sudo (Remove Cloud-Init NOPASSWD override)
+      file:
+        path: /etc/sudoers.d/90-cloud-init-users
+        state: absent
+
+    - name: Reboot server to apply kernel and GRUB updates
+      reboot:
+        msg: "Reboot initiated by Ansible to apply all system updates"
+        connect_timeout: 5
+        reboot_timeout: 600
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+
+  handlers:
+    - name: restart_fail2ban
+      systemd:
+        name: fail2ban
+        state: restarted
+        enabled: yes
+
+    - name: restart_unattended_upgrades
+      systemd:
+        name: unattended-upgrades
+        state: restarted
+
+    - name: update-grub
+      command: update-grub
+
+    - name: restart_sshd
+      systemd:
+        name: sshd
+        state: restarted

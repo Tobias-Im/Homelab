@@ -1,0 +1,51 @@
+
+# Edit this file to introduce tasks to be run by cron.
+#
+# Each task to run has to be defined through a single line
+# indicating with different fields when the task will be run
+# and what command to run for the task
+#
+# To define the time you can provide concrete values for
+# minute (m), hour (h), day of month (dom), month (mon),
+# and day of week (dow) or use '*' in these fields (for 'any').
+#
+# Notice that tasks will be started based on the cron's system
+# daemon's notion of time and timezones.
+#
+# Output of the crontab jobs (including errors) is sent through
+# email to the user the crontab file belongs to (unless redirected).
+#
+# For example, you can run a backup of all your user accounts
+# at 5 a.m every week with:
+# 0 5 * * 1 tar -zcf /var/backups/home.tgz /home/
+#
+# For more information see the manual pages of crontab(5) and cron(8)
+#
+# m h  dom mon dow   command
+
+
+
+
+# 0 0,4,8,12,16,20 * * * Saturday /home/Saturday/wall/Scripts/QbitTorrent/restart_docker_container.sh >/dev/null 2>&1
+
+# Crontab scan Jellyfin for movies with more than 27 subtitles streams
+
+# 0 */6 * * * Saturday /home/Saturday/wall/Scripts/Jellyfin/batch_process_movies.sh && /home/Saturday/wall/Scripts/Jellyfin/batch_process_shows.sh
+
+# Run the keep-alive script every 1 minute, stoping HDD to spin down
+
+* * * * * Saturday /home/Saturday/wall/Scripts/StopHddSpinDown/keep_alive_share.sh >/dev/null 2>&1
+
+# Watchtower uses Docker API to update individual containers ; Docker Compose manages a group of services (project) based on the static docker-compose.yml file.
+# Running docker compose up -d forces Compose to reconcile its internal state with the running containers. It re-adopts the new container IDs and verifies all settings (especially networks) based on the YAML file.
+
+10 7 15 * * Saturday /usr/bin/docker compose -f /home/Saturday/wall/Docker/docker-compose.yml up -d
+
+# Run full homelab backup only Sunday at 3:00 AM
+0 3 * * 0 Saturday /home/Saturday/wall/Scripts/BackUp/homelab_backup.sh >/dev/null 2>&1
+
+# Clean up local backups (retain only the last one) on Sunday at 4:00 AM
+0 4 * * 0 Saturday /home/Saturday/wall/Scripts/BackUp/homelab_cleanup_backups.sh >/dev/null 2>&1
+
+# Upload the latest backup to Google Drive and retain only the last one on Sunday at 5:00 AM
+0 5 * * 0 Saturday /home/Saturday/wall/Scripts/BackUp/homelab_cloud_upload.sh >/dev/null 2>&1
