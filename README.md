@@ -165,3 +165,4 @@ If you plan to fork or deploy this infrastructure, you **must** update the place
 *   **IP Addresses & MACs:** Internal IP addresses have been replaced with 192.168.X.X and hardware MAC addresses randomized.
 *   **Credentials & Paths:** Usernames, absolute paths, and system passwords have been replaced with safe placeholders (e.g., Saturday, Sunday, /path/).
 *   **API Tokens & Secrets:** All Proxmox, Cloudflare, InfluxDB, and other API secrets have been replaced with explicit placeholder strings (e.g., <YOUR_API_TOKEN>).
+*   **Excluded Files:** For security and privacy reasons, the actual Homelab backups, Monitoring backups, and the OpenMediaVault `config.xml` have been intentionally excluded from this repository on \files.
