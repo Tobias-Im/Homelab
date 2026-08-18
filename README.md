@@ -8,7 +8,6 @@ This document provides a comprehensive overview of the homelab and CyberLab envi
 
 The entire infrastructure runs on a single, highly efficient micro-server node with external attached mass storage:
 
-*   **Compute Node:** GMKtec NucBox M5 Plus Mini PC
 *   **Hypervisor:** Proxmox Virtual Environment (PVE) Bare-Metal
 *   **CPU:** AMD Ryzen™ 7 5825U (8 Cores / 16 Threads)
 *   **Memory:** 64GB (2 x 32GB ADATA Premier DDR4, 3200MHz, CL22)
